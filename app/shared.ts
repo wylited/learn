@@ -12,16 +12,15 @@
 export type Confidence = 1 | 2 | 3; // 1 Sure · 2 Pretty sure · 3 Guessed
 
 export type UiRequest =
-	| { kind: "quiz-reasoning"; question: string }
 	| {
-			kind: "quiz-answer";
+			/** Single-buffer quiz: question + choices + reasoning editor in ONE dialog. */
+			kind: "quiz";
 			question: string;
-			options: string[];
-			multiple: boolean;
+			free: boolean; // no options — the editor answer is graded by the teacher
+			options?: string[]; // choice mode
+			multiple?: boolean; // choice mode
 			hint?: string;
 	  }
-	| { kind: "quiz-free"; question: string }
-	| { kind: "quiz-confidence"; question: string }
 	| {
 			kind: "ask";
 			header?: string;
@@ -31,13 +30,17 @@ export type UiRequest =
 			allowText?: boolean; // Esc/empty → free-text entry instead of abort
 	  };
 
+export type QuizAnswer =
+	| { selected: number[] } // choice modes: chosen option indexes
+	| { dontKnow: true } // "I don't know" row / blank free answer
+	| { freeAnswer: string }; // free mode: typed answer ("" = blank)
+
 export type UiResponse =
-	| { reasoning: string } // quiz-reasoning typed text ("" possible)
-	| { selected: number[] } // quiz-answer: chosen option indexes
-	| { dontKnow: true } // quiz-answer: "I don't know" row
-	| { freeAnswer: string } // quiz-free typed answer ("" = submitted blank)
-	| { confidence: Confidence } // quiz-confidence: 1|2|3
-	| { skipped: true } // reasoning/confidence stage skipped (Esc)
+	| {
+			quiz: QuizAnswer;
+			reasoning: string; // typed in the same buffer ("" when untouched)
+			confidence: Confidence | null; // picked in the same buffer; null = skipped
+	  }
 	| { indexes: number[] } // ask: picked options
 	| { freeText: string } // ask: typed answer
 	| { aborted: true }; // dialog dismissed / no UI attached

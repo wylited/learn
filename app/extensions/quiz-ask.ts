@@ -12,7 +12,7 @@
  */
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "@earendil-works/pi-ai";
-import { EXT, TOOL, ui, type Confidence, type QuizResult } from "../shared.ts";
+import { EXT, TOOL, ui, type QuizResult } from "../shared.ts";
 
 // Shared UI mutex (legacy port). `ui()` dialogs show in the TUI's one overlay
 // slot, so every popup-style tool (quiz here, ask_user in Teach) must
@@ -136,48 +136,25 @@ const quizTool = defineTool({
 			}
 		}
 
+		// ONE dialog holds everything: question + choices (choice mode) + the
+		// reasoning editor side by side, then the confidence strip in the same
+		// buffer. The dialogs still serialize against ask_user via the mutex.
 		return sharedUiLock.withLock(async () => {
-			// Stage one is ALWAYS the reasoning panel (choice mode): the user
-			// talks through the thinking BEFORE locking an answer, so the
-			// reasoning cannot be contaminated by the grade. Free mode needs
-			// no separate stage — the typed answer IS the reasoning.
-			let reasoning = "";
-			if (!free) {
-				const reasoned = await ui({ kind: "quiz-reasoning", question: args.question });
-				if ("reasoning" in reasoned) reasoning = reasoned.reasoning.trim();
+			const answer = await ui({
+				kind: "quiz",
+				question: args.question,
+				free,
+				...(free ? {} : { options, multiple }),
+			});
+			if ("aborted" in answer) {
+				// Dismissed, or no UI handler attached (headless).
+				return errorResult("quiz dismissed");
 			}
 
-			let selected: number[] = [];
-			let dontKnow = false;
-			let freeAnswer: string | undefined;
-			if (free) {
-				const answer = await ui({ kind: "quiz-free", question: args.question });
-				if (!("freeAnswer" in answer)) {
-					// Dismissed, or no UI handler attached (headless).
-					return errorResult("quiz dismissed");
-				}
-				freeAnswer = answer.freeAnswer.trim();
-				dontKnow = freeAnswer === ""; // blank submission = no answer
-			} else {
-				const answer = await ui({ kind: "quiz-answer", question: args.question, options, multiple });
-				if (!("selected" in answer) && !("dontKnow" in answer)) {
-					return errorResult("quiz dismissed");
-				}
-				dontKnow = "dontKnow" in answer;
-				selected = dontKnow
-					? []
-					: [...new Set("selected" in answer ? answer.selected : [])]
-							.filter((i) => Number.isInteger(i) && i >= 0 && i < options.length)
-							.sort((a, b) => a - b);
-			}
-
-			// Confidence runs only for a real answer; "I don't know" / blank
-			// skips it (DECIDED: dontKnow records no confidence).
-			let confidence: Confidence | null = null;
-			if (!dontKnow) {
-				const confidenceResponse = await ui({ kind: "quiz-confidence", question: args.question });
-				if ("confidence" in confidenceResponse) confidence = confidenceResponse.confidence;
-			}
+			const { quiz, reasoning, confidence } = answer;
+			const dontKnow = "dontKnow" in quiz;
+			const selected = "selected" in quiz ? quiz.selected : [];
+			const freeAnswer = "freeAnswer" in quiz ? quiz.freeAnswer : undefined;
 
 			const result: QuizResult = {
 				question: args.question,
