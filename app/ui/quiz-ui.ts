@@ -66,7 +66,7 @@ export function addWrapped(lines: string[], text: string, width: number, indent 
 	}
 }
 
-export const DIALOG_OPTIONS: OverlayOptions = { width: "72%", minWidth: 40, anchor: "center" };
+export const DIALOG_OPTIONS: OverlayOptions = { width: "72%", minWidth: 40, anchor: "bottom-center" };
 
 /** Show `component` as an overlay; resolve when the dialog calls `done`. */
 export function showOverlayDialog<T>(
@@ -326,16 +326,28 @@ class QuizConfidenceDialog extends Dialog {
 }
 
 // ---------------------------------------------------------------------------
-// quiz-note: free-text note editor (Enter confirms, Esc skips)
+// quiz-reasoning / quiz-free: free-text editor stages
 // ---------------------------------------------------------------------------
 
-class QuizNoteDialog extends Dialog {
+class QuizEditorDialog extends Dialog {
 	private readonly editor: Editor;
 	private readonly done: (r: UiResponse) => void;
+	private readonly header: string;
+	private readonly footer: string;
+	private readonly onEnter: (text: string) => UiResponse;
+	private readonly onEsc: UiResponse;
 
-	constructor(tui: TUI, done: (r: UiResponse) => void) {
+	constructor(
+		tui: TUI,
+		done: (r: UiResponse) => void,
+		texts: { header: string; footer: string; onEnter: (text: string) => UiResponse; onEsc: UiResponse },
+	) {
 		super(tui);
 		this.done = done;
+		this.header = texts.header;
+		this.footer = texts.footer;
+		this.onEnter = texts.onEnter;
+		this.onEsc = texts.onEsc;
 		// disableSubmit: the editor's own submit path would clear the buffer;
 		// Enter is intercepted here instead (legacy port).
 		this.editor = new Editor(tui, createEditorTheme());
@@ -345,11 +357,11 @@ class QuizNoteDialog extends Dialog {
 
 	handleInput(data: string): void {
 		if (matchesKey(data, Key.enter)) {
-			this.done({ note: this.editor.getText() });
+			this.done(this.onEnter(this.editor.getText()));
 			return;
 		}
 		if (matchesKey(data, Key.escape)) {
-			this.done({ skipped: true });
+			this.done(this.onEsc);
 			return;
 		}
 		this.editor.handleInput(data);
@@ -360,11 +372,11 @@ class QuizNoteDialog extends Dialog {
 		const lines: string[] = [];
 		const add = (text: string) => lines.push(truncateToWidth(text, width));
 		add(theme.fg("accent", "─".repeat(width)));
-		addWrapped(lines, theme.fg("muted", " notes for yourself (optional)"), width, " ");
+		addWrapped(lines, styleTextWithAnsi(this.header, undefined, undefined, { bold: true }), width, " ");
 		lines.push("");
 		for (const line of this.editor.render(width)) lines.push(line);
 		lines.push("");
-		add(theme.fg("dim", " Type note • Ctrl+J newline • Enter confirm • Esc skip"));
+		add(theme.fg("dim", ` ${this.footer}`));
 		add(theme.fg("accent", "─".repeat(width)));
 		return lines;
 	}
@@ -375,6 +387,20 @@ class QuizNoteDialog extends Dialog {
 	}
 }
 
+const REASONING_TEXTS = {
+	header: "Reasoning — talk through your thinking first",
+	footer: "Type your reasoning • Ctrl+J newline • Enter confirm • Esc skip",
+	onEnter: (text: string): UiResponse => ({ reasoning: text }),
+	onEsc: { skipped: true } as UiResponse,
+};
+
+const FREE_TEXTS = {
+	header: "Your answer — in your own words",
+	footer: "Type your answer • Ctrl+J newline • Enter submit • Esc cancel",
+	onEnter: (text: string): UiResponse => ({ freeAnswer: text }),
+	onEsc: { aborted: true } as UiResponse,
+};
+
 // ---------------------------------------------------------------------------
 // Entry point used by the TUI's UiHandler
 // ---------------------------------------------------------------------------
@@ -382,12 +408,14 @@ class QuizNoteDialog extends Dialog {
 /** Show the quiz dialog for `request` as an overlay on `tui` (TUI bridge contract). */
 export async function show(request: UiRequest, tui: TUI): Promise<UiResponse> {
 	switch (request.kind) {
+		case "quiz-reasoning":
+			return showOverlayDialog(tui, (done) => new QuizEditorDialog(tui, done, REASONING_TEXTS));
 		case "quiz-answer":
 			return showOverlayDialog(tui, (done) => new QuizAnswerDialog(tui, request, done));
+		case "quiz-free":
+			return showOverlayDialog(tui, (done) => new QuizEditorDialog(tui, done, FREE_TEXTS));
 		case "quiz-confidence":
 			return showOverlayDialog(tui, (done) => new QuizConfidenceDialog(tui, request, done));
-		case "quiz-note":
-			return showOverlayDialog(tui, (done) => new QuizNoteDialog(tui, done));
 		default:
 			return { aborted: true };
 	}

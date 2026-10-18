@@ -12,6 +12,7 @@
 export type Confidence = 1 | 2 | 3; // 1 Sure · 2 Pretty sure · 3 Guessed
 
 export type UiRequest =
+	| { kind: "quiz-reasoning"; question: string }
 	| {
 			kind: "quiz-answer";
 			question: string;
@@ -19,8 +20,8 @@ export type UiRequest =
 			multiple: boolean;
 			hint?: string;
 	  }
+	| { kind: "quiz-free"; question: string }
 	| { kind: "quiz-confidence"; question: string }
-	| { kind: "quiz-note"; question: string }
 	| {
 			kind: "ask";
 			header?: string;
@@ -31,14 +32,15 @@ export type UiRequest =
 	  };
 
 export type UiResponse =
+	| { reasoning: string } // quiz-reasoning typed text ("" possible)
 	| { selected: number[] } // quiz-answer: chosen option indexes
 	| { dontKnow: true } // quiz-answer: "I don't know" row
+	| { freeAnswer: string } // quiz-free typed answer ("" = submitted blank)
 	| { confidence: Confidence } // quiz-confidence: 1|2|3
-	| { skipped: true } // confidence/note stage skipped (Esc)
-	| { note: string } // quiz-note typed text ("" possible)
+	| { skipped: true } // reasoning/confidence stage skipped (Esc)
 	| { indexes: number[] } // ask: picked options
-| { freeText: string } // ask: typed answer
-| { aborted: true }; // dialog dismissed / no UI attached
+	| { freeText: string } // ask: typed answer
+	| { aborted: true }; // dialog dismissed / no UI attached
 export type UiHandler = (request: UiRequest) => Promise<UiResponse>;
 
 let handler: UiHandler | null = null;
@@ -62,13 +64,15 @@ export async function ui(request: UiRequest): Promise<UiResponse> {
 
 export type QuizResult = {
 	question: string;
-	mode: "single" | "multiple";
-	selected: number[]; // option indexes the user locked in
-	correctIndices: number[];
-	correct: boolean; // false when dontKnow
+	mode: "single" | "multiple" | "free";
+	/** Typed BEFORE answering (choice modes); "" when skipped. The learner's own words. */
+	reasoning: string;
+	selected: number[]; // choice modes: locked-in option indexes
+	freeAnswer?: string; // free mode: the typed answer ("" = blank submission)
+	correctIndices: number[]; // choice modes; empty for free
+	correct: boolean | null; // null in free mode — the teacher judges the text
 	dontKnow: boolean;
 	confidence: Confidence | null; // null = stage skipped
-	note: string; // "" when skipped
 	explanation: string;
 };
 

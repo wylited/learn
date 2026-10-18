@@ -16,3 +16,7 @@ __pycache__/
 # Runtime state
 .memory/
 *.log
+
+# learn app local outputs
+learn-log.md
+viz/

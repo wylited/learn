@@ -81,29 +81,37 @@ function optionRef(index: number, labels: string[] | undefined): string {
 }
 
 function answerCalloutQuiz(result: QuizResult, labels: string[] | undefined): string {
+	const free = result.mode === "free";
 	// "I don't know" is neither correct nor incorrect — a distinct signal, so
-	// it never renders as a red ✗ (legacy port).
-	const type = result.dontKnow ? "question" : result.correct ? "success" : "failure";
+	// it never renders as a red ✗ (legacy port). Free mode carries no grade:
+	// the teacher judges the typed answer, so no ✓/✗ either.
+	const type = result.dontKnow ? "question" : free || result.correct ? "success" : "failure";
 	const title = result.dontKnow
 		? "Quiz — I don't know"
-		: result.correct
-			? "Quiz — correct ✓"
-			: "Quiz — incorrect ✗";
+		: free
+			? "Quiz — free answer (teacher evaluates)"
+			: result.correct
+				? "Quiz — correct ✓"
+				: "Quiz — incorrect ✗";
 
 	const body: string[] = [];
-	body.push(
-		result.dontKnow
-			? "Your answer: I don't know"
-			: `Your answer: ${result.selected.map((i) => optionRef(i, labels)).join(", ") || "(none)"}`,
-	);
-	body.push(`Correct answer: ${result.correctIndices.map((i) => optionRef(i, labels)).join(", ")}`);
+	if (free) {
+		body.push(`Your answer: ${result.dontKnow ? "(blank — no answer)" : (result.freeAnswer ?? "").split("\n")[0]}`);
+	} else {
+		body.push(
+			result.dontKnow
+				? "Your answer: I don't know"
+				: `Your answer: ${result.selected.map((i) => optionRef(i, labels)).join(", ") || "(none)"}`,
+		);
+		body.push(`Correct answer: ${result.correctIndices.map((i) => optionRef(i, labels)).join(", ")}`);
+	}
 	body.push(`Confidence: ${result.confidence != null ? CONFIDENCE_LABEL[result.confidence] : "—"}`);
 
-	if (result.note) {
+	if (result.reasoning) {
 		body.push("");
-		const noteLines = result.note.split("\n");
-		body.push(`Note: ${noteLines[0]}`);
-		for (let i = 1; i < noteLines.length; i++) body.push(noteLines[i]);
+		const lines = result.reasoning.split("\n");
+		body.push(`Reasoning: ${lines[0]}`);
+		for (let i = 1; i < lines.length; i++) body.push(lines[i]);
 	}
 
 	if (result.explanation) {
@@ -121,7 +129,8 @@ function isQuizResult(value: unknown): value is QuizResult {
 		typeof v.question === "string" &&
 		Array.isArray(v.selected) &&
 		Array.isArray(v.correctIndices) &&
-		typeof v.correct === "boolean" &&
+		// Free-mode results carry correct: null; the teacher grades them.
+		(typeof v.correct === "boolean" || v.correct === null) &&
 		typeof v.dontKnow === "boolean"
 	);
 }
