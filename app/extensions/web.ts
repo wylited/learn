@@ -69,6 +69,7 @@ const webSearch = defineTool({
 		const cacheKey = `search:${args.query}`;
 		const cached = cacheGet(cacheKey);
 		if (cached !== null) return textResult(cached);
+		let perplexityError: unknown;
 		try {
 			const { answer, sources } = await perplexitySearch(args.query, { timeoutMs: TIMEOUT_MS });
 			const lines = sources.map((source) => `- [${source.title}](${source.url})`);
@@ -77,10 +78,70 @@ const webSearch = defineTool({
 			cacheSet(cacheKey, text);
 			return textResult(text);
 		} catch (error) {
-			return textResult(error instanceof Error ? error.message : String(error), true);
+			perplexityError = error;
+		}
+		// Perplexity unavailable (quota/login) — fall back to a raw DDG result
+		// list so the caller gets sources instead of a dead end.
+		try {
+			const text = await ddgSearch(args.query);
+			cacheSet(cacheKey, text);
+			return textResult(text);
+		} catch {
+			return textResult(perplexityError instanceof Error ? perplexityError.message : String(perplexityError), true);
 		}
 	},
 });
+
+/** Decode a DDG redirect href into the real target URL. */
+function decodeUddg(href: string): string {
+	const start = href.indexOf("uddg=");
+	if (start === -1) return href;
+	const encoded = href.slice(start + 5, href.indexOf("&", start) === -1 ? undefined : href.indexOf("&", start));
+	try {
+		return decodeURIComponent(encoded);
+	} catch {
+		return href;
+	}
+}
+
+function stripTags(html: string): string {
+	return html
+		.replace(/<[^>]+>/g, "")
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#x27;|&#39;/g, "'")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/** Raw DuckDuckGo HTML result list — the no-synthesis fallback path. */
+async function ddgSearch(query: string): Promise<string> {
+	const response = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+		headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36" },
+		signal: AbortSignal.timeout(TIMEOUT_MS),
+	});
+	if (!response.ok) throw new Error(`DDG fallback failed: HTTP ${response.status}`);
+	const html = await response.text();
+	const titles: { url: string; title: string }[] = [];
+	for (const match of html.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+		titles.push({ url: decodeUddg(match[1]), title: stripTags(match[2]) });
+	}
+	const snippets: string[] = [];
+	for (const match of html.matchAll(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g)) {
+		snippets.push(stripTags(match[1]));
+	}
+	const results: string[] = [];
+	for (let index = 0; index < Math.min(titles.length, 8); index++) {
+		const snippet = snippets[index] === undefined ? "" : `\n  ${snippets[index]}`;
+		results.push(`${titles[index].title} — ${titles[index].url}${snippet}`);
+	}
+	if (results.length === 0) {
+		throw new Error("DDG fallback returned no parseable results");
+	}
+	return `Search results (Perplexity unavailable — raw result list, no synthesis):\n\n${results.join("\n\n")}`;
+}
 
 /** Read a response body as text, stopping at MAX_BYTES. */
 async function readCapped(response: Response): Promise<{ text: string; bytes: number; truncated: boolean }> {
