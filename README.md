@@ -16,6 +16,34 @@ This is a personal system I built for myself, shared as-is. Built as a pi config
 - `extensions/visual-tools/` — tools for visualization subagents
 - `agents/` — `researcher`, `svg-maker`, `mermaid-maker`: the subagents the system delegates to
 
+## The `learn` app — durable standalone CLI
+
+`app/` is a self-contained pi-durable application (no `.pi` needed): the same
+teaching system with crash-resumable sessions, parallel subagents
+(researcher + typst-maker + mermaid-maker), a typst→PNG/SVG pipeline, and the
+confidence quiz. It shares only the repo's `skills/` and `agents/` content.
+
+```bash
+cd app && npm install && npm run warm && npm link   # then ensure the npm global bin (e.g. ~/.npm-global/bin) is on PATH
+learn "half-adders"          # start a lesson in the current directory
+learn --continue             # resume the newest session here after a crash or exit
+learn --print "question"     # one headless turn, no TUI
+learn --model anthropic/claude-sonnet-5 "topic"
+```
+
+Requirements: node ≥ 23 (type stripping; 24 tested), typst on PATH or at
+`~/.cargo/bin` (packages pre-cached by `npm run warm`), and one LLM credential
+— checked in order: env (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
+`OPENAI_API_KEY`), `~/.pi/agent/auth.json`, omp's `~/.omp/agent/agent.db`.
+Default model `zai/glm-5.3-flash`; override with `LEARN_MODEL` or `--model`.
+
+Web search reuses omp's Perplexity session (`~/.omp/agent/agent.db`, email-OTP
+login — or set `LEARN_PERPLEXITY_TOKEN`); without it searches run anonymous and
+may hit a quota wall. Quiz flow: answer → confidence (1 Sure / 2 Pretty sure /
+3 Guessed) → free-text note; the teacher adapts to the grade×confidence pair
+and mines the note. Lessons mirror to `learn-log.md` (Obsidian callouts),
+published diagrams land in `viz/`.
+
 ## Install
 
 This repo **is** a `.pi` directory. From your learning project's root:
