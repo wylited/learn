@@ -35,9 +35,9 @@ import {
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { startDeliveryLoop } from "./extensions/subagents.ts";
 import { EXT } from "./shared.ts";
 import type { SessionLocation } from "./sessions.ts";
-
 const context = BACKGROUND_CONTEXT;
 
 export interface ModelSummary extends ModelRef {
@@ -204,6 +204,10 @@ export async function openRuntime(options: OpenRuntimeOptions): Promise<OpenRunt
 		const label = (id: ConversationId): string => (id === root.id ? "main" : `subagent ${id}`);
 		const opened = harness;
 		const summaries: ConversationSummary[] = [];
+
+		// Background subagent delivery: settled children inject their answers
+		// into the parent as follow-up messages (idempotently, crash-safe).
+		startDeliveryLoop(harness, context);
 		let cursor: Cursor | undefined;
 		do {
 			const page = await opened.commit((tx) => tx.scanConversations({}, 256, cursor), context);

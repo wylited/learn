@@ -268,11 +268,37 @@ export async function runTui(source: DurableViewSource, controller: DurableContr
 	const addEntry = (entry: EntryRecord): void => {
 		const message = entry.model?.[0];
 		if (entry.kind === "pi.user" && message?.role === "user") {
-			chat.addChild(new Text(`${ANSI.bold("▸ ")}${userText(message.content)}`, 1, 0));
+			const text = userText(message.content);
+			// Background-subagent hand-off injected by the delivery loop, not
+			// the learner: render as an accent-tagged block, and inline the
+			// published PNG when the answer carries one.
+			const injected = /^\[([\w-]+) (finished|failed) — background result\]\n?/.exec(text);
+			if (injected !== null) {
+				const body = text.slice(injected[0].length).replace(/\n\[end of background result\]\s*$/, "");
+				chat.addChild(new Text(ANSI.accent(`● ${injected[1]} ${injected[2]} (background)`), 1, 0));
+				if (body.trim() !== "") chat.addChild(new Markdown(body, 1, 1, markdownTheme));
+				const png = /\bpath:\s*(\S+\.png)\b/.exec(body);
+				if (png !== null) {
+					void readFile(png[1])
+						.then((bytes) => {
+							chat.addChild(new Image(bytes.toString("base64"), "image/png", imageTheme, { maxWidthCells: 80 }));
+							tui.requestRender();
+						})
+						.catch(() => undefined);
+				}
+			} else {
+				chat.addChild(new Text(`${ANSI.bold("▸ ")}${text}`, 1, 0));
+			}
 		} else if (entry.kind === "pi.assistant" && message?.role === "assistant") {
-			streaming = undefined;
 			const text = assistantText(message);
-			if (text) chat.addChild(new Markdown(text, 1, 1, markdownTheme));
+			// Finalize the streaming block in place: a second Markdown would
+			// duplicate the message after mid-round tool entries.
+			if (streaming !== undefined) {
+				streaming.setText(text);
+			} else if (text) {
+				chat.addChild(new Markdown(text, 1, 1, markdownTheme));
+			}
+			streaming = undefined;
 			const ran = message.stopReason === "toolUse";
 			for (const content of message.content) {
 				if (content.type !== "toolCall") continue;

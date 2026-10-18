@@ -16,10 +16,11 @@ import type { AssistantMessage, ModelThinkingLevel } from "@earendil-works/pi-ai
 import {
 	AssistantEntry,
 	type AgentChange,
+	type Cursor,
 	type EntryId,
+	type EntryRecord,
 	type Extension,
-	LiveDoc,
-	type LiveState,
+	type Harness,
 	type ModelRef,
 	configure,
 	defineExtension,
@@ -64,12 +65,17 @@ type ChildDetails = {
 const subagent = defineTool({
 	name: TOOL.subagent,
 	description:
-		"Delegate a self-contained task to a specialist subagent and get its answer back: researcher (web research, cited brief), typst-maker (precise Typst diagrams → PNG+SVG), mermaid-maker (simple structural diagrams → PNG). The subagent shares NO conversation context — the prompt must carry everything it needs. Batch independent subagent calls in one round: they run in parallel.",
+		"Delegate a self-contained task to a specialist subagent: researcher (web research, cited brief), typst-maker (precise Typst diagrams → PNG+SVG), mermaid-maker (simple structural diagrams → PNG). The subagent shares NO conversation context — the prompt must carry everything it needs. Batch independent calls in one round: they run in parallel. Use await=\"background\" to dispatch and keep going: the answer arrives later as a bracketed follow-up message, so the learner never waits.",
 	parameters: Type.Object({
 		name: Type.Union(AGENT_NAMES.map((name) => Type.Literal(name)), {
 			description: "Which specialist to run",
 		}),
 		prompt: Type.String({ description: "Fully self-contained task or brief for the specialist" }),
+		await: Type.Union([Type.Literal("result"), Type.Literal("background")], {
+			description:
+				'"result" (default) blocks this round until the answer is back. "background" returns at once and the answer is delivered as a follow-up message when the specialist finishes.',
+			default: "result",
+		}),
 	}),
 	// The visualize skill spells this call `subagent(agent=…, task=…)`; accept both
 	// spellings. The result is still validated against `parameters`.
@@ -77,7 +83,8 @@ const subagent = defineTool({
 		const record = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
 		const name = typeof record.name === "string" ? record.name : record.agent;
 		const prompt = typeof record.prompt === "string" ? record.prompt : record.task;
-		return { name, prompt } as { name: AgentName; prompt: string };
+		const mode = record.await === "background" ? "background" : "result";
+		return { name, prompt, await: mode } as { name: AgentName; prompt: string; await: "result" | "background" };
 	},
 	replay: "safe",
 	async execute(args, api, callContext) {
@@ -126,49 +133,152 @@ const subagent = defineTool({
 		const handle = await api.conversation(childId, callContext);
 		if (handle === undefined) throw new Error(`subagent: child conversation ${childId} is unavailable`);
 
-		// Live progress: forward the child's streamed text into this call's output
-		// at most once a second, so the learner sees work under the tool line.
-		const watch = await api.watchDoc(LiveDoc, childId, callContext);
-		let forwarded = 0;
-		let lastForwardAt = 0;
-		if (watch !== undefined) {
-			watch.start(async (state) => {
-				const now = Date.now();
-				if (now - lastForwardAt < 1000) return;
-				const text = liveText(state);
-				if (text === undefined || text.length <= forwarded) return;
-				lastForwardAt = now;
-				forwarded = text.length;
-				const tail = text.slice(-200).replace(/\s+/g, " ").trim();
-				api.output(`${args.name}: ${tail}\n`);
-			});
+		if (args.await === "background") {
+			// Admit the child's work, then return at once. The delivery loop
+			// (startDeliveryLoop) watches for the settled submission and injects
+			// the answer into this conversation as a follow-up message,
+			// exactly-once by request ID — across crashes, too: the loop's
+			// reads all come from the durable record.
+			await handle.submit(
+				{ type: "input", content: args.prompt, requestId: `subagent:${api.taskId}` },
+				callContext,
+			);
+			return {
+				output: [
+					{
+						type: "text",
+						text: `Delegated to ${args.name} in the background (conversation ${childId}). Keep going — the answer arrives later as a "[${args.name} finished]" follow-up message. Do not wait for it.`,
+					},
+				],
+				details: { conversationId: childId, agent: args.name } satisfies ChildDetails,
+			};
 		}
 
-		try {
-			// The requestId makes a rerun get back the submission it made before
-			// the crash instead of asking the child again.
-			const settled = await (
-				await handle.submit(
-					{ type: "input", content: args.prompt, requestId: `subagent:${api.taskId}` },
-					callContext,
-				)
-			).wait(callContext);
-			if (settled.status !== "done" || settled.type !== "input") {
-				const reason = settled.status === "unanswered" ? `: ${settled.reason}` : "";
-				throw new Error(`subagent ${args.name} failed (${settled.status}${reason})`);
-			}
-			const answer = await answerText(api, settled.answer, callContext);
-			const viz = parseViz(answer);
-			const details: ChildDetails = { conversationId: childId, agent: args.name };
-			if (viz !== undefined) details.viz = viz;
-			// Publish the final details (with viz) so the live slot and the UI see them.
-			await api.details(details, callContext);
-			return { output: [{ type: "text", text: answer }], details };
-		} finally {
-			if (watch !== undefined) await watch.stop();
+		// Blocking path: settle this round with the child's answer. The
+		// requestId makes a rerun get back the submission it made before the
+		// crash instead of asking the child again.
+		const settled = await (
+			await handle.submit(
+				{ type: "input", content: args.prompt, requestId: `subagent:${api.taskId}` },
+				callContext,
+			)
+		).wait(callContext);
+		if (settled.status !== "done" || settled.type !== "input") {
+			const reason = settled.status === "unanswered" ? `: ${settled.reason}` : "";
+			throw new Error(`subagent ${args.name} failed (${settled.status}${reason})`);
 		}
+		const answer = await answerText(api, settled.answer, callContext);
+		const viz = parseViz(answer);
+		const details: ChildDetails = { conversationId: childId, agent: args.name };
+		if (viz !== undefined) details.viz = viz;
+		// Publish the final details (with viz) so the live slot and the UI see them.
+		await api.details(details, callContext);
+		return { output: [{ type: "text", text: answer }], details };
 	},
 });
+
+// ---------------------------------------------------------------------------
+// Background delivery: children dispatched with await="background" settle on
+// their own schedule, durably. A process-lifetime loop polls the session for
+// settled child submissions whose parent has not been handed the answer yet,
+// and submits it there under a request ID that makes the hand-off
+// exactly-once — including after a crash-and-resume.
+// ---------------------------------------------------------------------------
+
+const DELIVERY_POLL_MS = 1000;
+
+type ReadyDelivery = { parentId: number; childId: number; label: string; content: string };
+
+function resultRequestId(childId: number): string {
+	return `subagent-result:${childId}`;
+}
+
+/** Tool-call agent name of a `pi.tool` task's assistant entry, for the label. */
+function toolCallName(entry: EntryRecord | undefined, callId: string | undefined): string | undefined {
+	const message = entry?.model?.[0] as { content?: unknown } | undefined;
+	if (!Array.isArray(message?.content) || callId === undefined) return undefined;
+	for (const block of message.content as unknown[]) {
+		const record = block as { type?: string; id?: string; arguments?: Record<string, unknown> };
+		if (record?.type === "toolCall" && record.id === callId) {
+			const args = record.arguments ?? {};
+			return typeof args.name === "string" ? args.name : typeof args.agent === "string" ? args.agent : undefined;
+		}
+	}
+	return undefined;
+}
+
+/** One scan: child conversations with a settled answer their parent never received. */
+async function findPendingDeliveries(harness: Harness, context: Context): Promise<ReadyDelivery[]> {
+	return harness.commit(async (tx) => {
+		const ready: ReadyDelivery[] = [];
+		const children: { id: number; parentId: number; taskId: number }[] = [];
+		let cursor: Cursor | undefined;
+		do {
+			const page = await tx.scanConversations({}, 256, cursor);
+			for (const record of page.items) {
+				if (record.owner === undefined) continue;
+				children.push({ id: record.id, parentId: record.owner.conversationId, taskId: record.owner.taskId });
+			}
+			cursor = page.next;
+		} while (cursor !== undefined);
+		for (const child of children) {
+			const input = await tx.submissionByRequest(child.id, `subagent:${child.taskId}`);
+			if (input?.type !== "input") continue;
+			if (input.status !== "done" && input.status !== "unanswered") continue;
+			if ((await tx.submissionByRequest(child.parentId, resultRequestId(child.id))) !== undefined) continue;
+			const task = await tx.task(child.taskId);
+			const toolInput = task?.input as { assistant?: number; callId?: string } | undefined;
+			const callEntry = toolInput?.assistant === undefined ? undefined : await tx.entry(toolInput.assistant);
+			const label = toolCallName(callEntry, toolInput?.callId) ?? "subagent";
+			if (input.status === "unanswered") {
+				ready.push({
+					parentId: child.parentId,
+					childId: child.id,
+					label,
+					content: `[${label} failed — background result]\nThe background task could not finish (${input.reason}). Re-dispatch it if its work still matters.\n[end of background result]`,
+				});
+				continue;
+			}
+			const entry = await tx.entry(input.answer);
+			const message = entry?.model?.[0] as AssistantMessage | undefined;
+			const text = (message?.content ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+			ready.push({
+				parentId: child.parentId,
+				childId: child.id,
+				label,
+				content: `[${label} finished — background result]\n${text}\n[end of background result]`,
+			});
+		}
+		return ready;
+	}, context);
+}
+
+let deliveryLoopStarted = false;
+
+/** Start the session-lifetime background delivery loop. Idempotent per process. */
+export function startDeliveryLoop(harness: Harness, context: Context): void {
+	if (deliveryLoopStarted) return;
+	deliveryLoopStarted = true;
+	void (async () => {
+		for (;;) {
+			const { promise: tick, resolve: next } = Promise.withResolvers<void>();
+			setTimeout(next, DELIVERY_POLL_MS);
+			await tick;
+			try {
+				for (const ready of await findPendingDeliveries(harness, context)) {
+					const parent = await harness.conversation(ready.parentId, context);
+					if (parent === undefined) continue;
+					await parent.submit(
+						{ type: "input", content: ready.content, requestId: resultRequestId(ready.childId) },
+						context,
+					);
+				}
+			} catch {
+				// Transient (line busy, closing); retried next tick.
+			}
+		}
+	})();
+}
 
 /** Final assistant text of the child's answer entry. */
 async function answerText(
@@ -184,27 +294,6 @@ async function answerText(
 	return message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 }
 
-/** Text streamed so far in the child's in-flight response, if any. */
-function liveText(state: Readonly<LiveState> | null): string | undefined {
-	const message: unknown = state?.generation?.message;
-	if (typeof message !== "object" || message === null || !("content" in message)) return undefined;
-	const content: unknown = message.content;
-	if (!Array.isArray(content)) return undefined;
-	let text = "";
-	for (const block of content) {
-		if (
-			typeof block === "object" &&
-			block !== null &&
-			"type" in block &&
-			block.type === "text" &&
-			"text" in block &&
-			typeof block.text === "string"
-		) {
-			text += block.text;
-		}
-	}
-	return text;
-}
 
 /** `filename:` / `path:` lines of a trailing RESULT: block, for UI previews. */
 function parseViz(text: string): Viz | undefined {
