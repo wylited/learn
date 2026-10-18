@@ -1,0 +1,13 @@
+#!/bin/sh
+# learn — run the durable tutoring app under node's native type stripping.
+# Resolve through symlinks (npm link installs ~/.npm-global/bin/learn → here),
+# so main.ts is found next to the real file, not next to the link.
+SELF=$0
+while [ -L "$SELF" ]; do
+	TARGET=$(readlink "$SELF")
+	case $TARGET in
+	/*) SELF=$TARGET ;;
+	*) SELF=$(dirname "$SELF")/$TARGET ;;
+	esac
+done
+exec node --disable-warning=ExperimentalWarning "$(dirname "$SELF")/../main.ts" "$@"
