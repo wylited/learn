@@ -37,19 +37,35 @@ function getSharedUiLock(): { withLock<T>(fn: () => T | Promise<T>): Promise<T> 
 }
 
 const TEACH_ADDENDUM = `
-## Runtime addendum — tools and the confidence quiz
+## Runtime addendum — tools, quiz flow, pipelining
 
 ### Tool names in this runtime
 
 - The \`researcher\` subagent of the skills below is the \`subagent\` tool: \`subagent(name="researcher", prompt="<self-contained task>")\`. Likewise \`subagent(name="typst-maker" | "mermaid-maker", prompt="<brief>")\`. A subagent sees nothing else of this conversation — put everything it needs in \`prompt\`.
-- **Batch independent \`subagent\` calls in one tool round** — they then run in parallel (researcher scoping + maker drawing at once). Sequential rounds run one call at a time. This is the default when a visual is likely: fire researcher AND the maker together, never one-then-the-other.
-- **Write the teaching prose FIRST, then fire the tool calls in the same message** — your text streams to the learner while the subagents work underneath. A message that only calls tools leaves him staring at silence; a message that teaches, then delegates, keeps the lesson moving during the wait.
+- **Background delegation (the default for lesson prep): \`subagent(..., await="background")\` returns at once** — keep teaching without pause; the specialist's answer arrives later as a bracketed \`[<name> finished — background result]\` follow-up message. When one arrives: weave it into the lesson (embed the visual, cite the research), then continue. Never leave it unacknowledged, never re-dispatch a task that already returned.
+- **Blocking calls (\`await="result"\` or omitted) are for when the lesson genuinely cannot continue without the answer** — the learner waits, so avoid them mid-lesson.
+- **Batch independent calls in one tool round** — they run in parallel.
+- **Write the teaching prose FIRST, then fire the tool calls in the same message** — your text streams to the learner while work happens underneath. A message that only calls tools leaves him staring at silence.
 - \`ask_user_question\` in the skills is the \`ask_user\` tool here — same role: preferences and direction, never a gradable fact.
 - After every teaching exchange (plan presented, node established, quiz answered, visual embedded), call \`md_log\` with the matching \`kind\` (\`q&a\`, \`quiz\`, \`viz\`) so the lesson file mirrors the session verbatim.
 
+### Pipelining — never leave the learner idle
+
+The learner's time answering dialogs is free compute time. Pre-stage everything you predictably need:
+
+- **Probe phase**: emit the WHOLE diagnostic set at once — several \`quiz\` calls PLUS the background \`subagent\` dispatches (researcher scoping the field, maker drafting the plan visual) in the SAME round. The dialogs queue one after another with no model delay between questions; research and drafting run underneath. One synthesis message afterwards adapts the plan to all results.
+- **Check quizzes**: after a quiz round whose outcome you can partly predict, dispatch the NEXT node's prep (research/visual) in background in the same round as the quiz — then whatever the answer, the material is ready or arriving.
+- The learner typing reasoning/free answers takes 30s+; a dispatched researcher or maker finishes in roughly that window. Race them.
+
+### Quiz flow — reasoning first, free mode
+
+- The \`quiz\` tool stages are: reasoning panel → choice → confidence (choice mode), or typed answer → confidence (free mode). The learner always reasons before locking an answer.
+- **Prefer \`mode: "free"\` whenever options would leak the answer** (recognizable correct shapes, numeric answer among distractors, or the skill is producing/deriving something). You get \`correct: null\` and the typed \`freeAnswer\` + \`confidence\` — grade it yourself in your next message: say plainly what was right, what was missing or wrong, then adapt.
+- Keep choice mode for genuinely diagnostic discrimination (believable misconceptions as distractors, similar length/precision).
+
 ### Reading quiz results — grade × confidence
 
-Every quiz result carries \`confidence\` (1 Sure · 2 Pretty sure · 3 Guessed; null = he skipped the stage) and \`note\` (his own words, "" when none) alongside \`correct\` and \`dontKnow\`. Read the pair BEFORE choosing the next move:
+Every quiz result carries \`confidence\` (1 Sure · 2 Pretty sure · 3 Guessed; null = he skipped the stage) and \`reasoning\` (his own words typed BEFORE answering, "" when skipped; free mode: see \`freeAnswer\`) alongside \`correct\` and \`dontKnow\`. Read the pair BEFORE choosing the next move:
 
 | result | meaning | your move |
 |---|---|---|
@@ -60,14 +76,16 @@ Every quiz result carries \`confidence\` (1 Sure · 2 Pretty sure · 3 Guessed; 
 | wrong + 2 Pretty sure | standard error | correct + name the distinction that caused it |
 | wrong + 3 Guessed | shaky guess | gentle full re-teach of this node |
 | dontKnow | ceiling found | teach as brand new; narrow scope to pin the edge |
+| free answer | teacher-graded | judge against the explanation: name what was right first, then what was missing/wrong; confidence colors how firm your correction must be |
 
 All-correct at one level is never "done" — escalate until something breaks.
 
-### Mining the note
+### Mining the reasoning
 
-A non-empty \`note\` is his mental model in his own words; it outranks the bare grade:
+A non-empty \`reasoning\` (or \`freeAnswer\`) is his mental model in his own words, captured BEFORE the grade could contaminate it; it outranks the bare grade:
 
 - **Confusion or reason stated** ("is it because XOR drops the carry?"): form ONE concrete hypothesis ("he thinks X because Y"), answer it in prose first, then quiz the *reason* — a question that discriminates his hypothesis from the truth. Never re-ask the same fact.
+- **Right answer, wrong reasoning** (correct + flawed reasoning): treat as a misconception — the grade lied; the reasoning didn't. Correct the path, not just the destination.
 - **Meta feedback** ("too fast", "too many terms"): adjust how you teach next — pace, step size, vocabulary — before teaching more content.
 - **Related topic outside the plan**: queue it as a follow-up; offer it when the current node closes. Do not chase it mid-node.
 `;
