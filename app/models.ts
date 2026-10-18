@@ -30,6 +30,7 @@ import {
 	type MutableModels,
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { commandCodeProvider } from "./commandcode.ts";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
@@ -45,6 +46,7 @@ const ENV_KEYS: Readonly<Record<string, string>> = {
 	openai: "OPENAI_API_KEY",
 	opencode: "OPENCODE_API_KEY",
 	deepseek: "DEEPSEEK_API_KEY",
+	commandcode: "COMMAND_CODE_API_KEY",
 };
 
 
@@ -53,7 +55,7 @@ const AGENT_DB = join(homedir(), ".omp", "agent", "agent.db");
 const PI_SETTINGS = join(homedir(), ".pi", "agent", "settings.json");
 
 /** Every provider id the registry installs, in install order. */
-const PROVIDER_IDS = ["zai", "anthropic", "openrouter", "openai", "github-copilot", "opencode", "deepseek", "faux"];
+const PROVIDER_IDS = ["zai", "anthropic", "openrouter", "openai", "github-copilot", "opencode", "deepseek", "commandcode", "faux"];
 
 /** One read-only credential per provider plus in-memory writes (login flows unused here). */
 class LearnCredentialStore implements CredentialStore {
@@ -173,6 +175,7 @@ export function createLearnModels(): MutableModels {
 	models.setProvider(githubCopilotProvider());
 	models.setProvider(opencodeProvider());
 	models.setProvider(deepseekProvider());
+	models.setProvider(commandCodeProvider());
 	const faux = fauxProvider();
 	fauxHandles.set(faux.provider, faux);
 	models.setProvider(faux.provider);

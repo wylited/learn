@@ -34,15 +34,19 @@ learn --model anthropic/claude-sonnet-5 "topic"
 Requirements: node ≥ 23 (type stripping; 24 tested), typst on PATH or at
 `~/.cargo/bin` (packages pre-cached by `npm run warm`), and one LLM credential
 — checked in order: env (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
-`OPENAI_API_KEY`), `~/.pi/agent/auth.json`, omp's `~/.omp/agent/agent.db`.
-Default model `zai/glm-5.3-flash`; override with `LEARN_MODEL` or `--model`.
+`OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `COMMAND_CODE_API_KEY`), `~/.pi/agent/auth.json`,
+omp's `~/.omp/agent/agent.db`. Providers: `zai`, `anthropic`, `openrouter`, `openai`,
+`github-copilot`, `opencode`, `deepseek`, and `commandcode` (Command Code Provider API;
+catalog fetched live, `user_…` subscription keys). Default model `zai/glm-5.3-flash`;
+override with `LEARN_MODEL` or `--model`, e.g. `--model commandcode/deepseek/deepseek-v4.1-flash`.
 
 Web search reuses omp's Perplexity session (`~/.omp/agent/agent.db`, email-OTP
 login — or set `LEARN_PERPLEXITY_TOKEN`); without it searches run anonymous and
-may hit a quota wall. Quiz flow: answer → confidence (1 Sure / 2 Pretty sure /
-3 Guessed) → free-text note; the teacher adapts to the grade×confidence pair
-and mines the note. Lessons mirror to `learn-log.md` (Obsidian callouts),
-published diagrams land in `viz/`.
+may hit a quota wall. Quiz flow: reasoning panel → answer (choice, or free-typed
+in `mode: "free"` for the teacher to grade) → confidence (1 Sure / 2 Pretty sure /
+3 Guessed); the teacher adapts to the grade×confidence pair and mines the reasoning.
+Subagents can run blocking or `await: "background"` (result arrives as a follow-up
+message while the lesson continues); published diagrams land in `viz/`.
 
 ## Install
 
