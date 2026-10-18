@@ -52,7 +52,6 @@ const ENV_KEYS: Readonly<Record<string, string>> = {
 
 const AUTH_JSON = join(homedir(), ".pi", "agent", "auth.json");
 const AGENT_DB = join(homedir(), ".omp", "agent", "agent.db");
-const PI_SETTINGS = join(homedir(), ".pi", "agent", "settings.json");
 
 /** Every provider id the registry installs, in install order. */
 const PROVIDER_IDS = ["zai", "anthropic", "openrouter", "openai", "github-copilot", "opencode", "deepseek", "commandcode", "faux"];
@@ -225,22 +224,8 @@ export async function defaultModel(models: Models): Promise<ResolvedModel> {
 		await requireCredentials(models, resolved.ref.provider);
 		return resolved;
 	}
-	let provider = "zai";
-	let modelId = "glm-5.3-flash";
-	try {
-		const settings = JSON.parse(await readFile(PI_SETTINGS, "utf8")) as {
-			defaultProvider?: unknown;
-			defaultModel?: unknown;
-		};
-		if (typeof settings.defaultProvider === "string" && typeof settings.defaultModel === "string") {
-			provider = settings.defaultProvider;
-			modelId = settings.defaultModel;
-		}
-	} catch {
-		// No pi settings; keep the built-in default.
-	}
-	const resolved = resolveModel(models, `${provider}/${modelId}`);
-	await requireCredentials(models, provider);
+	const resolved = resolveModel(models, "commandcode/deepseek/deepseek-v4.1-flash");
+	await requireCredentials(models, "commandcode");
 	return resolved;
 }
 

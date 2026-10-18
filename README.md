@@ -37,8 +37,8 @@ Requirements: node ≥ 23 (type stripping; 24 tested), typst on PATH or at
 `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `COMMAND_CODE_API_KEY`), `~/.pi/agent/auth.json`,
 omp's `~/.omp/agent/agent.db`. Providers: `zai`, `anthropic`, `openrouter`, `openai`,
 `github-copilot`, `opencode`, `deepseek`, and `commandcode` (Command Code Provider API;
-catalog fetched live, `user_…` subscription keys). Default model `zai/glm-5.3-flash`;
-override with `LEARN_MODEL` or `--model`, e.g. `--model commandcode/deepseek/deepseek-v4.1-flash`.
+catalog fetched live, `user_…` subscription keys). Default model
+`commandcode/deepseek/deepseek-v4.1-flash`; override with `LEARN_MODEL` or `--model`.
 
 Web search reuses omp's Perplexity session (`~/.omp/agent/agent.db`, email-OTP
 login — or set `LEARN_PERPLEXITY_TOKEN`); without it searches run anonymous and
