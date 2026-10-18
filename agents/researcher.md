@@ -14,10 +14,11 @@ You operate in an isolated context with no knowledge of any prior conversation. 
 
 Process:
 1. Break the question into 2-4 searchable facets
-2. Search with `web_search` using varied angles
-3. Read the answers. Identify what's well-covered, what has gaps.
-4. For the 2-3 most promising source URLs, use `web_fetch` to get full page content
-5. Synthesize everything into a brief that directly answers the question
+2. Fire ALL facet searches in ONE tool round (parallel web_search calls) — never serialize them; each query costs ~3-4 s
+3. Read the answers. Identify what's well-covered, what's missing.
+4. For the 2-3 most promising source URLs, fetch them in ONE parallel round of `web_fetch` calls
+5. Only if gaps remain: one refined parallel search round, then stop
+6. Synthesize everything into a brief that directly answers the question
 
 Search strategy — always vary your angles:
 - Direct answer query (the obvious one)
