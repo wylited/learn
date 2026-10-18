@@ -98,6 +98,8 @@ export interface OpenRuntimeOptions {
 	readonly registryExtensions?: readonly Extension[];
 	readonly initialModel?: ModelRef;
 	readonly initialThinkingLevel?: ModelThinkingLevel;
+	/** Start with the background task panel open (the `-d`/`--debug` flag). */
+	readonly debugTasks?: boolean;
 }
 
 export interface OpenRuntimeResult {
@@ -380,8 +382,9 @@ export async function openRuntime(options: OpenRuntimeOptions): Promise<OpenRunt
 		) {
 			notice("warning", `Saved model is unavailable: ${saved.provider}/${saved.modelId}`);
 		}
-		// The task panel starts open; /tasks hides it.
-		await controller.toggleTasks();
+		// The task panel is debug-only: `-d`/`--debug` starts with it open,
+		// `/tasks` toggles it any time.
+		if (options.debugTasks === true) await controller.toggleTasks();
 		// Recovered work from an interrupted turn continues now.
 		opened.resume();
 

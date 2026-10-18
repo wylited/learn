@@ -21,26 +21,29 @@ interface Args {
 	continueSession: boolean;
 	modelSpec: string | undefined;
 	print: string | undefined;
+	debug: boolean;
 	topic: string[];
 }
 
-const USAGE = `usage: learn [--continue] [--model provider/modelId] [--print "question"] [topic...]
+const USAGE = `usage: learn [--continue] [--model provider/modelId] [--print "question"] [-d] [topic...]
 
   --continue, -c      resume the newest session for this directory
-  --model spec        e.g. zai/glm-5.3-flash, anthropic/claude-sonnet-5
+  --model spec        e.g. commandcode/deepseek/deepseek-v4.1-flash
   --print question    one headless turn: print the answer and exit
+  -d, --debug         show the background task panel (also: /tasks)
   topic               opening prompt, e.g. learn "half-adders"
 
 env: LEARN_MODEL (default model override), provider API keys (ZAI_API_KEY, ...),
      ~/.pi/agent/auth.json and ~/.omp/agent/agent.db are read for credentials.`;
 
 function parseArgs(argv: readonly string[]): Args {
-	const args: Args = { continueSession: false, modelSpec: undefined, print: undefined, topic: [] };
+	const args: Args = { continueSession: false, modelSpec: undefined, print: undefined, debug: false, topic: [] };
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index] as string;
 		if (arg === "--continue" || arg === "-c") args.continueSession = true;
 		else if (arg === "--model") args.modelSpec = argv[++index];
 		else if (arg === "--print") args.print = argv[++index];
+		else if (arg === "--debug" || arg === "-d") args.debug = true;
 		else if (arg === "--help" || arg === "-h") {
 			console.log(USAGE);
 			process.exit(0);
@@ -91,6 +94,7 @@ async function main(): Promise<void> {
 		rootExtensions: extensions.root,
 		registryExtensions: extensions.registry,
 		initialModel: initial.ref,
+		debugTasks: args.debug,
 	});
 	// With LEARN_FAUX_REPLY set, every faux turn (topic, --print, or typed in
 	// the TUI) answers with the scripted reply — the affordance for headless tests.

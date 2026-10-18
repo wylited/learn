@@ -29,6 +29,7 @@ learn "half-adders"          # start a lesson in the current directory
 learn --continue             # resume the newest session here after a crash or exit
 learn --print "question"     # one headless turn, no TUI
 learn --model anthropic/claude-sonnet-5 "topic"
+learn -d                     # -d/--debug starts with the background task panel open (/tasks toggles it)
 ```
 
 Requirements: node ≥ 23 (type stripping; 24 tested), typst on PATH or at
@@ -42,11 +43,14 @@ catalog fetched live, `user_…` subscription keys). Default model
 
 Web search reuses omp's Perplexity session (`~/.omp/agent/agent.db`, email-OTP
 login — or set `LEARN_PERPLEXITY_TOKEN`); without it searches run anonymous and
-may hit a quota wall. Quiz flow: reasoning panel → answer (choice, or free-typed
-in `mode: "free"` for the teacher to grade) → confidence (1 Sure / 2 Pretty sure /
-3 Guessed); the teacher adapts to the grade×confidence pair and mines the reasoning.
-Subagents can run blocking or `await: "background"` (result arrives as a follow-up
-message while the lesson continues); published diagrams land in `viz/`.
+may hit a quota wall. Quiz flow: one dialog — question, choices (choice mode)
+and a reasoning editor all visible together; picking an answer swaps the list
+for a confidence strip (1 Sure / 2 Pretty sure / 3 Guessed) while the reasoning
+stays editable; `mode: "free"` skips choices — the typed answer is graded by
+the teacher (blank = "I don't know"). The teacher adapts to the grade×confidence
+pair and mines the reasoning. Subagents can run blocking or
+`await: "background"` (result arrives as a follow-up message while the lesson
+continues); published diagrams land in `viz/`.
 
 ## Install
 
