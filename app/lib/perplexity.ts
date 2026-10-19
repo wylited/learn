@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 
 export type PerplexitySource = {
 	title: string;
@@ -42,9 +42,9 @@ export async function perplexityToken(): Promise<string | null> {
 
 function readOmpToken(): string | null {
 	try {
-		// node:sqlite is optional for callers that never search: load lazily.
-		const sqlite = require("node:sqlite") as { DatabaseSync: typeof DatabaseSync };
-		const db = new sqlite.DatabaseSync(join(homedir(), ".omp", "agent", "agent.db"), { readOnly: true });
+		// node:sqlite is a builtin — a static import (this is an ESM package,
+		// `require` does not exist here).
+		const db = new DatabaseSync(join(homedir(), ".omp", "agent", "agent.db"), { readOnly: true });
 		try {
 			const row = db
 				.prepare(
