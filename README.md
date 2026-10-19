@@ -41,6 +41,10 @@ omp's `~/.omp/agent/agent.db`. Providers: `zai`, `anthropic`, `openrouter`, `ope
 catalog fetched live, `user_…` subscription keys). Default model
 `commandcode/deepseek/deepseek-v4.1-flash`; override with `LEARN_MODEL` or `--model`.
 
+Theme: auto-detected from your terminal's background color (OSC query at
+startup; live re-themes on scheme change in kitty). Pin it with
+`LEARN_THEME=light` or `LEARN_THEME=dark`.
+
 Web search reuses omp's Perplexity session (`~/.omp/agent/agent.db`, email-OTP
 login — or set `LEARN_PERPLEXITY_TOKEN`); without it searches run anonymous and
 may hit a quota wall. Quiz flow: one dialog — question, choices (choice mode)

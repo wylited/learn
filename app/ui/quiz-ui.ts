@@ -9,40 +9,18 @@ import {
 	type EditorTheme,
 	Key,
 	matchesKey,
+	styleTextWithAnsi,
 	truncateToWidth,
 	wrapTextWithAnsi,
-	styleTextWithAnsi,
-	foregroundAnsi,
-	indexedColor,
 	type Component,
 	type OverlayHandle,
 	type OverlayOptions,
 	type TUI,
 } from "@earendil-works/pi-tui";
 import type { Confidence, UiRequest, UiResponse } from "../shared.ts";
+import { theme } from "./theme.ts";
 
-// ---------------------------------------------------------------------------
-// Color palette. The old coding-agent Theme object does not exist in pi-tui;
-// dialogs carry a minimal 256-color palette that renders on any terminal.
-// ---------------------------------------------------------------------------
-
-type Role = "accent" | "success" | "error" | "warning" | "muted" | "dim" | "text";
-
-const ansi = (index: number) => foregroundAnsi(indexedColor(index), "256color");
-const COLORS: Record<Exclude<Role, "text">, string> = {
-	accent: ansi(39), // cyan
-	success: ansi(2), // green
-	error: ansi(1), // red
-	warning: ansi(3), // yellow
-	muted: ansi(245), // light gray
-	dim: ansi(243), // gray
-};
-
-export const theme = {
-	fg(role: Role, text: string): string {
-		return role === "text" ? text : styleTextWithAnsi(text, COLORS[role], undefined, {});
-	},
-};
+export { theme };
 
 export function createEditorTheme(): EditorTheme {
 	return {

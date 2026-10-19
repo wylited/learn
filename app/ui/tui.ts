@@ -42,16 +42,17 @@ import {
 } from "@earendil-works/pi-tui";
 import { setUiHandler, type UiRequest, type UiResponse } from "../shared.ts";
 import { agentOf, type DurableController, type DurableView, type DurableViewSource } from "../runtime.ts";
+import { schemeFromBackground, setThemeScheme, theme, themeEnvOverride, type ThemeScheme } from "./theme.ts";
 
 const ANSI = {
 	bold: (t: string) => `\x1b[1m${t}\x1b[22m`,
-	dim: (t: string) => `\x1b[2m${t}\x1b[22m`,
+	dim: (t: string) => theme.fg("dim", t),
 	italic: (t: string) => `\x1b[3m${t}\x1b[23m`,
 	underline: (t: string) => `\x1b[4m${t}\x1b[24m`,
-	cyan: (t: string) => `\x1b[36m${t}\x1b[39m`,
-	yellow: (t: string) => `\x1b[33m${t}\x1b[39m`,
-	red: (t: string) => `\x1b[31m${t}\x1b[39m`,
-	accent: (t: string) => `\x1b[35m${t}\x1b[39m`,
+	cyan: (t: string) => theme.fg("accent", t),
+	yellow: (t: string) => theme.fg("warning", t),
+	red: (t: string) => theme.fg("error", t),
+	accent: (t: string) => theme.fg("accent", t),
 };
 
 const markdownTheme: MarkdownTheme = {
@@ -82,6 +83,34 @@ const selectTheme: SelectListTheme = {
 };
 
 const editorTheme: EditorTheme = { borderColor: ANSI.dim, selectList: selectTheme };
+
+/**
+ * Pick the color scheme: LEARN_THEME=light|dark wins; otherwise ask the
+ * terminal for its background (OSC 11) and read its luminance. Subscribes to
+ * live scheme notifications (kitty's CSI ?2031) so toggling the OS theme
+ * re-renders themed components; transcript lines already styled keep their
+ * original colors until their next update.
+ */
+async function resolveThemeScheme(tui: TUI): Promise<void> {
+	const override = themeEnvOverride(process.env);
+	if (override !== null) {
+		setThemeScheme(override);
+		return;
+	}
+	try {
+		const colors = await tui.queryTerminalColors({ timeoutMs: 600 });
+		setThemeScheme(schemeFromBackground(colors.background));
+	} catch {
+		// Terminal did not answer OSC 11 (SSH without terminfo, redirected
+		// output): keep the dark default.
+	}
+	tui.setTerminalColorSchemeNotifications(true);
+	tui.onTerminalColorSchemeChange((next: ThemeScheme) => {
+		setThemeScheme(next);
+		tui.invalidate();
+		tui.requestRender();
+	});
+}
 
 function clip(text: string, max: number): string {
 	const single = text.replace(/\s+/g, " ").trim();
@@ -561,6 +590,7 @@ export async function runTui(source: DurableViewSource, controller: DurableContr
 	const unsubscribe = source.subscribe(() => apply(source.current()));
 	const dialogWarning = await attachDialogs(tui);
 	tui.start();
+	await resolveThemeScheme(tui);
 	if (dialogWarning !== undefined) chat.addChild(new Text(ANSI.yellow(dialogWarning), 1, 0));
 	apply(source.current());
 	try {
